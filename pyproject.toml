@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "newdomainspotter"
+version = "0.1.0"
+description = ""
+authors = ["Mike R <cr8syoki@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+argparse = "^1.4.0"
+DateTime = "^4.3"
+rapidfuzz = "^1.6.1"
+rich = "^10.9.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
