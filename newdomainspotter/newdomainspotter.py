@@ -30,15 +30,14 @@ def get_new_domains():
         whois_new_domains_url = requests.get(
             WHOISDS_URL + url_with_date + "/nrd")
         whois_new_domains_url.raise_for_status()
-        # print(whois_new_domains_url.status_code)
-        # print(str(whois_new_domains_url.content))
+        #print(whois_new_domains_url.status_code)
         try:
             with ZipFile(BytesIO(whois_new_domains_url.content)) as datafile:
-                # print('opened zip')
+                
                 for x in datafile.infolist():
                     with datafile.open(x) as data:
                         for line in data:
-                            # print(str(line))
+                          
                             new_domains = line.decode("ascii")
                             new_domain_list.append(str(new_domains).rstrip("\r\n"))
 
@@ -53,17 +52,19 @@ def get_new_domains():
 
 def rapidfuzz_new_domains(dom2match) -> tuple:
     domains_to_search = get_new_domains()
-    ratios = process.extract(dom2match, domains_to_search)
-    for x in zip(ratios):
-        result = ", ".join(map(str, x))
-        console.print(result, highlight=False)
+    domain_sim_ratio = process.extract(dom2match, domains_to_search)
+    
+    for ratio in zip(domain_sim_ratio):
+        similarity_result = ", ".join(map(str, ratio))
+        console.print(similarity_result, highlight=False)
 
 
-def show_me_everything(wildcard) -> str:
+def simulate_control_f_search(wildcard) -> str:
     domains = get_new_domains()
-    for line in domains:
-        if wildcard in line:
-            console.print(line, highlight=False)
+    
+    for all_domains in domains:
+        if wildcard in all_domains:
+            console.print(all_domains, highlight=False)
 
 
 def main():
@@ -98,10 +99,9 @@ Examples:
     if args.rfuzz:
         rapidfuzz_new_domains(args.rfuzz)
     elif args.all:
-        show_me_everything(args.all)
+        simulate_control_f_search(args.all)
 
 
 if __name__ == "__main__":
     main()
     
-
