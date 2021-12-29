@@ -1,3 +1,9 @@
+AUTHOR = "Michael Rippey, Twitter: @nahamike01"
+LAST_SEEN = "2021 12 29"
+DESCRIPTION = """Download/search for suspicious domains from the WHOISDS database. 
+
+usage: python3 newdomainspotter.py -rfuzz <<str(keyword)>>  || -a <<str(keyword)>>"""
+
 import argparse
 import base64
 from io import BytesIO
@@ -15,13 +21,12 @@ console = Console()
 WHOISDS_URL = "https://whoisds.com//whois-database/newly-registered-domains/"
 
 
-def set_date_in_url() -> str:
-    """Set date to yesterday's date in
-    
+def format_date_url() -> str:
+    """
+    Set date to yesterday"s date in
     Args: None  
-    
     Returns: 
-        str -> Yesterday's date Base64 encoded with additional information for URL
+    str -> Yesterday"s date Base64 encoded with additional information for URL
     """
     yesterday = datetime.now() - timedelta(days=2)
     format_date = datetime.strftime(yesterday, "%Y-%m-%d")
@@ -30,85 +35,81 @@ def set_date_in_url() -> str:
     return finished_url_date
 
 
-def get_new_domains() -> requests.Response:
-    """Fetch content from WHOISDS website for new domains file 
-    
-    Args: None 
-    
-    Returns: 
-        requests.Response -> Content of server response
-        (zip file of newly registered domains)
+def get_newreg_domains() -> requests.Response:
     """
-    url_with_date = set_date_in_url()
+    Fetch content from WHOISDS website for new domains file 
+    Args: None 
+    Returns: 
+    requests.Response -> Content of server response
+    (zip file of newly registered domains)
+    """
+    add_date_url = format_date_url()
 
     try:
-        whois_new_domains_url = requests.get(WHOISDS_URL + url_with_date + "/nrd")
-        whois_new_domains_url.raise_for_status()
+        headers = {"User-Agent": "NewDomainSpotter v0.2 (github: @mrippey"}
+        whoisds_new_domains = requests.get(WHOISDS_URL + add_date_url + "/nrd", headers=headers)
+        whoisds_new_domains.raise_for_status()
 
     except requests.RequestException:
         print("[red]An error occured [/red]")
 
-    return whois_new_domains_url.content
+    return whoisds_new_domains.content
 
 
-def open_process_domainlist_zip_file() -> List[str]:
-    """Open and read returned zip file from request 
-    
-    Args: None 
-    
-    Returns: 
-        List[str] -> The zip file is read and returns each newly 
-        identified domain as a list of strings.
+def process_domain_file() -> List[str]:
     """
-    testme = get_new_domains()
-    new_domain_list = []
+    Open and read returned zip file from request 
+    Args: None 
+    Returns: 
+    List[str] -> The zip file is read and returns each newly 
+    identified domain as a list of strings.
+    """
+    domain_file = get_newreg_domains()
+    domains = []
 
     try:
-        with ZipFile(BytesIO(testme)) as datafile:
+        with ZipFile(BytesIO(domain_file)) as data:
 
-            for x in datafile.infolist():
-                with datafile.open(x) as data:
-                    for line in data:
+            for info in data.infolist():
+                with data.open(info) as lines:
+                    for line in lines:
 
-                        new_domains = line.decode("ascii")
-                        new_domain_list.append(str(new_domains).rstrip("\r\n"))
+                        file = line.decode("ascii")
+                        domains.append(str(file).rstrip("\r\n"))
 
-    except Exception:
-        print(
-            """[red] Error opening zip file. You may need to change the 'days' range.[/red]"""
-        )
+    except ZipFile.BadZipFile as e:
+        print(f"[red] {e} [/red]")
 
-    return new_domain_list
+    return domains
 
 
-def rapidfuzz_search_for_domains(domainMatch: str) -> List[Tuple]:
-    """Return RapidFuzz string match of search query 
-    
-    Args: domainMatch 
-    
+def str_match_rapidfuzz(query_str: str) -> List[Tuple]:
+    """
+    Return RapidFuzz string match of search query 
+    Args: query_str 
     Returns: 
     List[Tuple] -> Best matches based on similarity
-     """
-    domains_to_search = open_process_domainlist_zip_file()
-    domain_sim_ratio = process.extract(domainMatch, domains_to_search)
+    """
+    domains_to_search = process_domain_file()
+    domain_sim_ratio = process.extract(query_str, domains_to_search, limit=10)
 
-    for ratio in zip(domain_sim_ratio):
-        similarity_result = ", ".join(map(str, ratio))
-        console.print(similarity_result, highlight=False)
+    for word_sim in zip(domain_sim_ratio):
+        similarity_result = ", ".join(map(str, word_sim))
+        cleaned_result = str(similarity_result)[1:-1].replace("'", '')
+        console.print(cleaned_result, highlight=False)
 
 
-def control_f_type_search(wildcard_search: str) -> str:
-    """Return all instances of the queried search term 
-    
-    Args: wildcard_search 
-    
+def scan_all_occurrences(query_str: str) -> str:
+    """
+    Return all instances of the queried search term 
+    Args: query_str 
     Returns: 
     str -> All instances where the query appears in the file
     """
-    list_of_domains = open_process_domainlist_zip_file()
+    list_of_domains = process_domain_file()
 
     for search_all_instances in list_of_domains:
-        if wildcard_search in search_all_instances:
+        if query_str in search_all_instances:
             console.print(search_all_instances, highlight=False)
 
 
@@ -117,46 +118,35 @@ def main():
     banner = """
       ___       __   __                     __   __   __  ___ ___  ___  __  
 |\ | |__  |  | |  \ /  \ |\/|  /\  | |\ | /__` |__) /  \  |   |  |__  |__) 
-| \| |___ |/\| |__/ \__/ |  | /~~\ | | \| .__/ |    \__/  |   |  |___ |  \ 
-                                                                            
-----------------------------------------------------------------
-This program downloads and unzips the latest WHOISDS newly registered domains
-list. Searches can be based on similarity matching with RapidFuzz, or a 
-Ctrl+F type search returning all instances of the query.
-
-Examples:
-\t python newdomainspotter.py -r 'google'
-\t python newdomainspotter.py -a 'microsoft'
-
+| \| |___ |/\| |__/ \__/ |  | /~~\ | | \| .__/ |    \__/  |   |  |___ |  \                                                                           
+--------------------------------------------------------------------------
 """
 
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description=banner,
-    )
+    parser = argparse.ArgumentParser(description="{}\nBy: {}\tLast_Seen: {}\n\nDescription: {}".format(banner, AUTHOR, LAST_SEEN, DESCRIPTION), 
+    formatter_class=argparse.RawTextHelpFormatter)
+    
     parser.add_argument(
         "-r",
         "--rfuzz",
-        help="""Identify similar domains with a 
-        single keyword using RapidFuzz""",
-    )
+        help="Identify domains of a certain similarity using RapidFuzz")
+
     parser.add_argument(
         "-a",
         "--all",
-        help="Generic single keyword search, similar to Ctrl+F",
-        action="store_true",
-    )
+        help="Generic scan for all occurrences of provided keyword.")
 
     args = parser.parse_args()
 
     if args.rfuzz:
         print(banner)
-        rapidfuzz_search_for_domains(args.rfuzz)
+        print()
+        print("Returning results...\n")
+        str_match_rapidfuzz(args.rfuzz)
     elif args.all:
         print(banner)
-        control_f_type_search(args.all)
+        scan_all_occurrences(args.all)
     else:
-        print(banner)
+        print(parser.print_help)
 
 
 if __name__ == "__main__":
