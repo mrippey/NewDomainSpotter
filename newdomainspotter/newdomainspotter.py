@@ -1,5 +1,5 @@
 AUTHOR = "Michael Rippey, Twitter: @nahamike01"
-LAST_SEEN = "2021 12 29"
+LAST_SEEN = "2021 12 30"
 DESCRIPTION = """Download/search for suspicious domains from the WHOISDS database. 
 
 usage: python3 newdomainspotter.py -rfuzz <<str(keyword)>>  || -a <<str(keyword)>>"""
@@ -10,13 +10,10 @@ from io import BytesIO
 from datetime import datetime, timedelta
 from rapidfuzz import process
 import requests
-from rich import print
-from rich.console import Console
 from typing import List, Tuple
 from zipfile import ZipFile
+from pathlib import Path
 
-
-console = Console()
 
 WHOISDS_URL = "https://whoisds.com//whois-database/newly-registered-domains/"
 
@@ -50,8 +47,8 @@ def get_newreg_domains() -> requests.Response:
         whoisds_new_domains = requests.get(WHOISDS_URL + add_date_url + "/nrd", headers=headers)
         whoisds_new_domains.raise_for_status()
 
-    except requests.RequestException:
-        print("[red]An error occured [/red]")
+    except requests.RequestException as e:
+        print("[!] Requests Module Exception: {e}")
 
     return whoisds_new_domains.content
 
@@ -78,7 +75,7 @@ def process_domain_file() -> List[str]:
                         domains.append(str(file).rstrip("\r\n"))
 
     except ZipFile.BadZipFile as e:
-        print(f"[red] {e} [/red]")
+        print(f"[!] Exception: {e}")
 
     return domains
 
@@ -96,7 +93,7 @@ def str_match_rapidfuzz(query_str: str) -> List[Tuple]:
     for word_sim in zip(domain_sim_ratio):
         similarity_result = ", ".join(map(str, word_sim))
         cleaned_result = str(similarity_result)[1:-1].replace("'", '')
-        console.print(cleaned_result, highlight=False)
+        print(cleaned_result, highlight=False)
 
 
 def scan_all_occurrences(query_str: str) -> str:
@@ -106,17 +103,27 @@ def scan_all_occurrences(query_str: str) -> str:
     Returns: 
     str -> All instances where the query appears in the file
     """
+    path = Path.cwd() / f'{query_str}_matches.txt'
     list_of_domains = process_domain_file()
-
+    
     for search_all_instances in list_of_domains:
-        if query_str in search_all_instances:
-            console.print(search_all_instances, highlight=False)
+
+        if query_str not in search_all_instances:
+            print(f'[!] Sorry, there were no matches for {query_str} among the newly registered domains.\n')
+            exit()
+        elif query_str in search_all_instances:
+            print(search_all_instances, highlight=False)
+            
+            with open(path, 'a')as f:
+                f.write(search_all_instances+'\n')
+
+        print(f'[+] Results written to: {path}\n')
 
 
 def main():
 
     banner = """
-      ___       __   __                     __   __   __  ___ ___  ___  __  
+      ___       __   __                    __   __   __  ___ ___  ___  __  
 |\ | |__  |  | |  \ /  \ |\/|  /\  | |\ | /__` |__) /  \  |   |  |__  |__) 
 | \| |___ |/\| |__/ \__/ |  | /~~\ | | \| .__/ |    \__/  |   |  |___ |  \                                                                           
 --------------------------------------------------------------------------
@@ -133,7 +140,7 @@ def main():
     parser.add_argument(
         "-a",
         "--all",
-        help="Generic scan for all occurrences of provided keyword.")
+        help="Generic scan for all occurrences of provided keyword. Accepts keyword and path to file")
 
     args = parser.parse_args()
 
@@ -143,9 +150,11 @@ def main():
         print("Returning results...\n")
         str_match_rapidfuzz(args.rfuzz)
     elif args.all:
-        print(banner)
+        print(banner + '\n')
+        print('Returning results...\n')
         scan_all_occurrences(args.all)
     else:
+        print(['[!] Didn\t understand that. Try again...\n'])
         print(parser.print_help)
 
 
