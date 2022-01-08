@@ -1,18 +1,26 @@
 AUTHOR = "Michael Rippey, Twitter: @nahamike01"
-LAST_SEEN = "2021 12 30"
+LAST_SEEN = "2022 01 09"
 DESCRIPTION = """Download/search for suspicious domains from the WHOISDS database. 
 
 usage: python3 newdomainspotter.py -rfuzz <<str(keyword)>>  || -a <<str(keyword)>>"""
 
 import argparse
 import base64
-from io import BytesIO
+import json
+import os
 from datetime import datetime, timedelta
-from rapidfuzz import process
-import requests
+from io import BytesIO
+from pathlib import Path
+from time import sleep
 from typing import List, Tuple
 from zipfile import ZipFile
-from pathlib import Path
+
+import requests
+from dotenv import load_dotenv
+from rapidfuzz import process
+from requests.auth import HTTPBasicAuth
+
+load_dotenv()
 
 
 WHOISDS_URL = "https://whoisds.com//whois-database/newly-registered-domains/"
@@ -93,7 +101,7 @@ def str_match_rapidfuzz(query_str: str) -> List[Tuple]:
     for word_sim in zip(domain_sim_ratio):
         similarity_result = ", ".join(map(str, word_sim))
         cleaned_result = str(similarity_result)[1:-1].replace("'", '')
-        print(cleaned_result, highlight=False)
+        print(cleaned_result)
 
 
 def scan_all_occurrences(query_str: str) -> str:
@@ -103,29 +111,48 @@ def scan_all_occurrences(query_str: str) -> str:
     Returns: 
     str -> All instances where the query appears in the file
     """
+    
     path = Path.cwd() / f'{query_str}_matches.txt'
     list_of_domains = process_domain_file()
+
     
-    for search_all_instances in list_of_domains:
+    for search_all in list_of_domains:
 
-        if query_str not in search_all_instances:
-            print(f'[!] Sorry, there were no matches for {query_str} among the newly registered domains.\n')
-            exit()
-        elif query_str in search_all_instances:
-            print(search_all_instances, highlight=False)
-            
+        if query_str in search_all:
+           
+            print(f'[*] {search_all}')
+
+
             with open(path, 'a')as f:
-                f.write(search_all_instances+'\n')
+                f.write(search_all+'\n')
 
-        print(f'[+] Results written to: {path}\n')
+
+    print(f'[+] Results written to: {path}\n')
+    #TODO Integrate IBM XForce URL Report
+    print('[*] IBM XForce URL Report\n')
+    xfe_key = os.getenv('XFE_KEY')
+    xfe_pass = os.getenv('XFE_PASS')
+    try:
+        url = 'https://api.xforce.ibmcloud.com/url/'
+        for item in search_all:
+            response = requests.get(url+item, auth=HTTPBasicAuth(xfe_key, xfe_pass))
+            sleep(10)
+        
+        responsejson = json.loads(response.text)
+        print(responsejson)
+
+    except Exception as e:
+        print(f'[!] {e}')
+
+       
 
 
 def main():
 
     banner = """
-      ___       __   __                    __   __   __  ___ ___  ___  __  
-|\ | |__  |  | |  \ /  \ |\/|  /\  | |\ | /__` |__) /  \  |   |  |__  |__) 
-| \| |___ |/\| |__/ \__/ |  | /~~\ | | \| .__/ |    \__/  |   |  |___ |  \                                                                           
+  __   __                    __   __   __  ___ ___  ___  __  
+ |  \ /  \ |\/|  /\  | |\ | /__` |__) /  \  |   |  |__  |__) 
+ |__/ \__/ |  | /~~\ | | \| .__/ |    \__/  |   |  |___ |  \                                                                           
 --------------------------------------------------------------------------
 """
 
@@ -147,12 +174,13 @@ def main():
     if args.rfuzz:
         print(banner)
         print()
-        print("Returning results...\n")
+        print("[!] Returning results if found, exits if not...\n")
         str_match_rapidfuzz(args.rfuzz)
     elif args.all:
         print(banner + '\n')
-        print('Returning results...\n')
+        print('[!] Returning results if found, exits if none...\n')
         scan_all_occurrences(args.all)
+        
     else:
         print(['[!] Didn\t understand that. Try again...\n'])
         print(parser.print_help)
