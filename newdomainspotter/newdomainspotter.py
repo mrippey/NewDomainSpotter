@@ -1,29 +1,31 @@
 AUTHOR = "Michael Rippey, Twitter: @nahamike01"
-LAST_SEEN = "2022 01 09"
+LAST_SEEN = "2022 07 05"
 DESCRIPTION = """Download/search for suspicious domains from the WHOISDS database. 
 
 usage: python3 newdomainspotter.py -rfuzz <<str(keyword)>>  || -a <<str(keyword)>>"""
 
+import os
+import sys
 import argparse
 import base64
-import json
-import os
 from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
-from time import sleep
+import requests
 from typing import List, Tuple
 from zipfile import ZipFile
+import re
 
-import requests
-from dotenv import load_dotenv
-from rapidfuzz import process
-from requests.auth import HTTPBasicAuth
-
-load_dotenv()
+try:
+    from rapidfuzz import process
+except ImportError:
+    print('rapidfuzz not installed, use:')
+    print('\t\tpip3 install rapidfuzz')
 
 
 WHOISDS_URL = "https://whoisds.com//whois-database/newly-registered-domains/"
+
+regex_for_domain_names = r'(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,6}'
 
 
 def format_date_url() -> str:
@@ -35,7 +37,7 @@ def format_date_url() -> str:
     """
     yesterday = datetime.now() - timedelta(days=2)
     format_date = datetime.strftime(yesterday, "%Y-%m-%d")
-    url_add_ext = format_date + ".zip"
+    url_add_ext = f"{format_date}.zip"
     finished_url_date = base64.b64encode(url_add_ext.encode("utf-8")).decode("utf-8")
     return finished_url_date
 
@@ -51,12 +53,13 @@ def get_newreg_domains() -> requests.Response:
     add_date_url = format_date_url()
 
     try:
+        print('[+] Connecting to WHOISDS...\n')
         headers = {"User-Agent": "NewDomainSpotter v0.2 (github: @mrippey"}
         whoisds_new_domains = requests.get(WHOISDS_URL + add_date_url + "/nrd", headers=headers)
         whoisds_new_domains.raise_for_status()
 
-    except requests.RequestException as e:
-        print("[!] Requests Module Exception: {e}")
+    except requests.RequestException as err:
+        print(f"[!] Requests Module Exception: {err}")
 
     return whoisds_new_domains.content
 
@@ -73,6 +76,7 @@ def process_domain_file() -> List[str]:
     domains = []
 
     try:
+        print('[+] Processing list of newly registered domains...\n')
         with ZipFile(BytesIO(domain_file)) as data:
 
             for info in data.infolist():
@@ -82,28 +86,45 @@ def process_domain_file() -> List[str]:
                         file = line.decode("ascii")
                         domains.append(str(file).rstrip("\r\n"))
 
-    except ZipFile.BadZipFile as e:
-        print(f"[!] Exception: {e}")
+    except ZipFile.BadZipFile as err:
+        print(f"[!] Exception: {err}")
 
     return domains
 
 
-def str_match_rapidfuzz(query_str: str) -> List[Tuple]:
+def rapidfuzz_multi_query(results_file) -> List[Tuple]:
     """
     Return RapidFuzz string match of search query 
     Args: query_str 
     Returns: 
     List[Tuple] -> Best matches based on similarity
     """
-    domains_to_search = process_domain_file()
-    domain_sim_ratio = process.extract(query_str, domains_to_search, limit=10)
+    paths = [] 
 
-    for word_sim in zip(domain_sim_ratio):
-        similarity_result = ", ".join(map(str, word_sim))
-        cleaned_result = str(similarity_result)[1:-1].replace("'", '')
-        print(cleaned_result)
+    with open('./queries.txt', 'r')as data:
+        query_str = data.readlines()
 
+    paths = [uri_path.strip() for uri_path in query_str]
 
+    #print(paths)
+    
+    new_domains_list = process_domain_file()
+
+    for query in paths:
+        results = process.extract(query, new_domains_list)
+        domain_matches = ", '".join(map(str, results))
+        domain_matches.replace("'", '')
+
+        #print(domain_matches)
+        with open(results_file, 'a')as f:
+            extracted = re.findall(regex_for_domain_names, domain_matches)
+            domain_names = str(extracted)
+            domain_names.replace(']', '').replace('[', '').split(',')
+            f.write(domain_names + '\n')
+    
+    print(f'[!] Complete. File written to: {results_file}')
+
+       
 def scan_all_occurrences(query_str: str) -> str:
     """
     Return all instances of the queried search term 
@@ -115,38 +136,20 @@ def scan_all_occurrences(query_str: str) -> str:
     path = Path.cwd() / f'{query_str}_matches.txt'
     list_of_domains = process_domain_file()
 
-    
     for search_all in list_of_domains:
 
         if query_str in search_all:
            
             print(f'[*] {search_all}')
 
-
             with open(path, 'a')as f:
                 f.write(search_all+'\n')
 
-
+# ADD CHECK IF NONE, DONT PRINT
+    print()
     print(f'[+] Results written to: {path}\n')
-    #TODO Integrate IBM XForce URL Report
-    print('[*] IBM XForce URL Report\n')
-    xfe_key = os.getenv('XFE_KEY')
-    xfe_pass = os.getenv('XFE_PASS')
-    try:
-        url = 'https://api.xforce.ibmcloud.com/url/'
-        for item in search_all:
-            response = requests.get(url+item, auth=HTTPBasicAuth(xfe_key, xfe_pass))
-            sleep(10)
-        
-        responsejson = json.loads(response.text)
-        print(responsejson)
-
-    except Exception as e:
-        print(f'[!] {e}')
-
+    
        
-
-
 def main():
 
     banner = """
@@ -156,34 +159,33 @@ def main():
 --------------------------------------------------------------------------
 """
 
-    parser = argparse.ArgumentParser(description="{}\nBy: {}\tLast_Seen: {}\n\nDescription: {}".format(banner, AUTHOR, LAST_SEEN, DESCRIPTION), 
-    formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(description=f"{banner}\nBy: {AUTHOR}\tLast_Seen: {LAST_SEEN}\n\nDescription: {DESCRIPTION}".format(banner, AUTHOR, LAST_SEEN, DESCRIPTION), formatter_class=argparse.RawTextHelpFormatter)
     
     parser.add_argument(
         "-r",
         "--rfuzz",
-        help="Identify domains of a certain similarity using RapidFuzz")
+        help="Scan a list of keywords for similarity using RapidFuzz.")
 
     parser.add_argument(
         "-a",
         "--all",
-        help="Generic scan for all occurrences of provided keyword. Accepts keyword and path to file")
+        help="Generic scan for all occurrences of a single keyword.")
 
     args = parser.parse_args()
 
     if args.rfuzz:
         print(banner)
         print()
-        print("[!] Returning results if found, exits if not...\n")
-        str_match_rapidfuzz(args.rfuzz)
+        rapidfuzz_multi_query(args.rfuzz)
+        
     elif args.all:
         print(banner + '\n')
         print('[!] Returning results if found, exits if none...\n')
         scan_all_occurrences(args.all)
         
     else:
-        print(['[!] Didn\t understand that. Try again...\n'])
-        print(parser.print_help)
+        print("[!] No argument was provided. Try again...\n")
+        parser.print_help()
 
 
 if __name__ == "__main__":
